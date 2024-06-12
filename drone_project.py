@@ -1,6 +1,7 @@
 from djitellopy import Tello
 import cv2 as cv2
 import mediapipe as mp
+# import time
 
 mp_holistic = mp.solutions.holistic
 mp_drawing = mp.solutions.drawing_utils
@@ -14,10 +15,18 @@ pitch = 0
 throttle = 0
 yaw = 0
 
-kp = 120
+kp = 170
+kd = 170
+
 error_x = 0
 error_y = 0
-# integral_error  = error_actual - error_anterior 
+derivative_error_x = 0
+derivative_error_y = 0
+
+current_error_x = 0
+current_error_y = 0
+previous_error_x = 0
+previous_error_y = 0
 
 tello = Tello()
 
@@ -38,11 +47,13 @@ while True:
     if frame is None:
         continue
 
-    frame = cv2.resize(frame, (360, 240))
+    frame = cv2.resize(frame, (720, 480))
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     results = holistic.process(frame)
     mp_drawing.draw_landmarks(frame, results.face_landmarks, mp_holistic.FACEMESH_CONTOURS, mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=1, circle_radius=1))
+    mp_drawing.draw_landmarks(frame, results.left_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
+    mp_drawing.draw_landmarks(frame, results.right_hand_landmarks, mp_holistic.HAND_CONNECTIONS)
 
     if results.face_landmarks:
 
@@ -54,27 +65,34 @@ while True:
         error_x = coordinates[0] - reference[0]
         error_y = coordinates[1] - reference[1]
 
-        roll = int(-kp * error_x)
-        throttle = int(-kp * error_y)
+        current_error_x = error_x
+        current_error_y = error_y
+
+        derivative_error_x = current_error_x - previous_error_x
+        derivative_error_y = current_error_y - previous_error_y
+
+        roll = int(-kp * error_x) + int(kd * derivative_error_x)
+        throttle = int(-kp * error_y) + int(kd * derivative_error_y)
 
         tello.send_rc_control(-roll, pitch, throttle, yaw)
 
-        # if coordinates[0] < 0.5:
-        #     roll = -15
-        # else:
-        #     roll = 15
-        # if coordinates[1] > 0.3:
-        #     throttle = -15
-        # else:
-        #     throttle = 15
-        # if coordinates[2] > 0:
-        #     pitch = 12
-        # tello.send_rc_control(roll, pitch, throttle, yaw)
+        previous_error_x = error_x
+        previous_error_y = error_y
+
+    if results.right_hand_landmarks:
+        yaw = -40
+    else:
+        yaw = 0
+
+
+    if results.left_hand_landmarks:
+        yaw = 40
+    else:
+        yaw = 0
 
     tello.send_rc_control(0, 0, 0, 0)
 
     cv2.imshow('Tello Video', frame)
-
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
